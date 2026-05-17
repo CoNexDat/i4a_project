@@ -59,6 +59,10 @@ The Ring Link layer is responsible for:
 
 Unlike traditional bus architectures, the ring topology allows the system to scale modularly while avoiding centralized communication bottlenecks.
 
+<p align="center">
+  <img src="./docs/esquema_spi_nodo.png" width="700">
+</p>
+
 ---
 
 ## Wireless Module
@@ -77,6 +81,10 @@ This module manages:
 - dynamic connectivity,
 - recovery mechanisms,
 - network interface integration using lwIP.
+
+- <p align="center">
+  <img src="./docs/esquema_distribucion_de_red.png" width="700">
+</p>
 
 ---
 
@@ -140,7 +148,7 @@ The ESP32 platform was selected because it provides:
 - native integration with ESP-IDF and lwIP.
 
 <p align="center">
-  <img src="./docs/esquema_chip_esp32.png" width="700">
+  <img src="./docs/esp32-devkitC-v4-pinout.png" width="700">
 </p>
 
 ---
