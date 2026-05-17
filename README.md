@@ -1,239 +1,333 @@
-# ComNetAR: ESP32 Ring Network Connection Project
+# ComNetAR — Lightweight Embedded Mesh Networking Architecture for ESP32
 
-## Project Overview
+## Overview
 
-This project implements a ring network topology using ESP32 microcontrollers connected via SPI (Serial Peripheral Interface). Each ESP32 board functions simultaneously as an SPI master and slave, creating a circular communication chain where data can flow bidirectionally through the network. This architecture enables efficient local communication within IoT nodes, supporting configurations from 2 to 5 boards in a single ring.
+ComNetAR is an experimental distributed networking platform designed for low-resource embedded systems using ESP32 microcontrollers.
 
-The system's unique feature is its dual-role approach: each board acts as a master for the next board and a slave for the previous one, enabling seamless data transmission throughout the network. One of the boards serves as an Access Point (AP), allowing the node to communicate with external networks while maintaining internal ring communication.
+The project explores the implementation of a lightweight mesh-oriented communication architecture capable of operating on constrained hardware without requiring complex routing tables, high-performance processors, or large operating systems.
 
-## Compatible Hardware
-This project has been tested and verified to work with the following ESP32 boards:
+Instead of relying on traditional mesh routing approaches designed for Linux-based devices or high-capacity embedded systems, ComNetAR focuses on minimizing:
 
-- Espressif ESP32-DevKitC v4 (https://docs.espressif.com/projects/esp-idf/en/v5.1/esp32/hw-reference/esp32/get-started-devkitc.html#)
+- memory usage,
+- routing state,
+- processing overhead,
+- communication complexity.
 
-### Pinout
+The system is designed around modular communication components that can operate efficiently on microcontrollers while still supporting:
 
-![alt text](./docs/esp32-devkitC-v4-pinout.png)
+- packet forwarding,
+- telemetry,
+- local inter-module communication,
+- distributed wireless connectivity.
 
+---
 
+# Architecture
 
-While the project may work with other ESP32 boards that have similar specifications, compatibility cannot be guaranteed without testing.
+Each node in the system is composed of three main modules:
 
-## Prerequisites
+1. Ring Link  
+2. Wireless  
+3. Routing  
 
-### ESP-IDF Installation
-Before starting with this project, you need to install ESP-IDF v5.1.2. Follow these steps:
+These modules interact together to provide internal communication, wireless connectivity, and distributed packet propagation.
 
-1. **Windows Installation**:
-   - Download the ESP-IDF Windows Installer from the official ESP-IDF Releases page
-   - Run the installer and follow the installation wizard
-   - The installer will download and install:
-     * ESP-IDF tools
-     * Git
-     * Python
-     * Required build tools
+<p align="center">
+  <img src="./docs/interconexion_modulos.png" width="750">
+</p>
 
-2. **Linux/macOS Installation**:
-   ```bash
-   mkdir -p ~/esp
-   cd ~/esp
-   git clone -b v5.1.2 --recursive https://github.com/espressif/esp-idf.git
-   cd esp-idf
-   ./install.sh
-   ```
+---
 
-3. **Set up ESP-IDF environment variables**:
-   - Windows: Run `C:\esp\esp-idf\export.bat`
-   - Linux/macOS: `. ~/esp/esp-idf/export.sh`
+## Ring Link Module
 
-For detailed installation instructions, visit [ESP-IDF Get Started Guide](https://docs.espressif.com/projects/esp-idf/en/v5.1.2/esp32/get-started/index.html)
+The Ring Link module provides high-speed local communication between ESP32 boards inside the same node using SPI connections arranged in a ring topology.
 
-## Installing and Building the Project
+Each ESP32 simultaneously operates as:
 
-1. Clone this repo and cd into it:
-   ```bash
-   git clone https://github.com/clrvyntx/i4a
-   cd i4a
-   ```
+- SPI master toward the next board,
+- SPI slave toward the previous board.
 
-2. Set up the ESP-IDF environment:
-   ```bash
-   get_idf
-   ```
+This creates a bidirectional circular communication structure where packets can circulate across all internal boards with minimal overhead.
 
-3. Build the project:
-   ```bash
-   idf.py build
-   ```
-   Note: Initial build will take some time while it compiles all required libraries.
+The Ring Link layer is responsible for:
 
+- local packet transport,
+- synchronization between boards,
+- internal message forwarding,
+- error detection,
+- inter-module communication.
 
-## Board Configuration Options
+Unlike traditional bus architectures, the ring topology allows the system to scale modularly while avoiding centralized communication bottlenecks.
 
-The system supports between 2 to 5 ESP32 boards in a ring configuration:
+---
 
-### Possible Setups:
-1. **2 boards**: Minimal configuration
-   - Each ESP32 acts as both master and slave
-   - Direct bidirectional communication
+## Wireless Module
 
-2. **3-4 boards**: Intermediate configuration
+The Wireless module handles communication between independent nodes through WiFi.
 
-   Forms a ring where each board connects to its neighbors
-   Required boards:
+One ESP32 inside the node acts as the external Access Point (AP), allowing the node to communicate with:
 
-   One AP (Access Point) board
-   Two or three boards from: North, South, East, or West
+- other mesh nodes,
+- monitoring systems,
+- external IP networks.
 
+This module manages:
 
-   Example (3 boards): AP + North + South
-   Example (4 boards): AP + North + South + East
+- wireless packet transmission,
+- dynamic connectivity,
+- recovery mechanisms,
+- network interface integration using lwIP.
 
-3. **5 boards**: Full configuration
-   - Complete board setup with all roles:
-     * North board
-     * South board
-     * East board
-     * West board
-     * AP (Access Point) board
+---
 
-### Board Roles
-Each ESP32 in the ring must be configured with its specific role using the configuration pins (see GPIO Configuration section).
+## Routing Module
 
-## GPIO - Connections for ESP32 - Physical ports ring connections
+The Routing module implements a lightweight forwarding mechanism optimized for constrained embedded environments.
 
-```
+Traditional mesh routing protocols often require:
+
+- large routing tables,
+- periodic topology exchanges,
+- continuous route maintenance,
+- significant memory consumption.
+
+ComNetAR instead explores simplified routing strategies inspired by topological addressing approaches such as **ANTop** (Adjacent Network Topology).
+
+In this model, part of the network topology is embedded directly into the node addressing scheme.
+
+<p align="center">
+  <img src="./docs/esquema_antop.png" width="700">
+</p>
+
+This approach allows the system to:
+
+- reduce routing state,
+- simplify forwarding decisions,
+- minimize memory usage,
+- improve scalability on constrained hardware.
+
+The routing layer therefore focuses on lightweight packet propagation rather than maintaining complete global topology knowledge.
+
+---
+
+# System Goals
+
+The project was developed as part of a research effort focused on validating the feasibility of mesh-oriented distributed communication systems running on low-cost embedded hardware.
+
+The primary goals are:
+
+- modular node architecture,
+- low computational overhead,
+- reduced routing complexity,
+- fault-tolerant communication,
+- compatibility with resource-constrained IoT devices.
+
+---
+
+# Hardware Platform
+
+The project currently targets:
+
+- Espressif ESP32-DevKitC v4
+- ESP32-WROOM-32 module
+
+The ESP32 platform was selected because it provides:
+
+- integrated WiFi,
+- dual-core execution,
+- DMA-capable SPI peripherals,
+- FreeRTOS support,
+- native integration with ESP-IDF and lwIP.
+
+<p align="center">
+  <img src="./docs/esquema_chip_esp32.png" width="700">
+</p>
+
+---
+
+# Software Stack
+
+The system is built using:
+
+- ESP-IDF v5.1.2
+- FreeRTOS
+- lwIP
+
+---
+
+## FreeRTOS
+
+FreeRTOS is used to organize the system into concurrent tasks distributed across the ESP32 dual-core architecture.
+
+This enables:
+
+- concurrent packet processing,
+- task prioritization,
+- synchronization primitives,
+- deterministic scheduling.
+
+<p align="center">
+  <img src="./docs/freertos_esquema.png" width="700">
+</p>
+
+---
+
+## lwIP
+
+The networking layer is implemented using lwIP, a lightweight TCP/IP stack optimized for embedded systems.
+
+The stack provides:
+
+- IPv4/IPv6 support,
+- IP forwarding,
+- UDP/TCP communication,
+- integration with wireless interfaces.
+
+<p align="center">
+  <img src="./docs/esquema_lwip.png" width="700">
+</p>
+
+---
+
+# Internal Ring Topology
+
+The internal node architecture supports between 2 and 5 ESP32 boards connected in a physical SPI ring.
+
+Possible configurations include:
+
+- 2-board minimal topology,
+- 3–4 board intermediate topologies,
+- 5-board full topology.
+
+Each board assumes a specific role:
+
+- North
+- South
+- East
+- West
+- Access Point (AP)
+
+The AP board acts as the gateway between the internal ring and external wireless communication.
+
+---
+
+# SPI Physical Connections
+
+```text
 Master Device          Slave Device
 -------------         -------------
-GPIO 23 (MOSI)  ────► GPIO 13 (MOSI)
-GPIO 18 (SCLK)  ────► GPIO 14 (SCLK)
-GPIO 5  (CS)    ────► GPIO 15 (CS)
+GPIO 23 (MOSI)  --->  GPIO 13 (MOSI)
+GPIO 18 (SCLK)  --->  GPIO 14 (SCLK)
+GPIO 5  (CS)    --->  GPIO 15 (CS)
 ```
 
-#### Role Configuration System
-**Configuration Pins (Pull-Up):**
-- CONFIG_PIN_0: GPIO 22 (least significant bit)
-- CONFIG_PIN_1: GPIO 21
-- CONFIG_PIN_2: GPIO 16 (most significant bit)
+---
 
+# Role Configuration Pins
 
-## IDF configuration: sdkconfig file
+```text
+CONFIG_PIN_0 -> GPIO 22
+CONFIG_PIN_1 -> GPIO 21
+CONFIG_PIN_2 -> GPIO 16
+```
+
+These pins determine the role assigned to each ESP32 inside the node.
+
+---
+
+# Build Environment
+
+## Requirements
+
+Before building the project, install:
+
+- ESP-IDF v5.1.2
+- Python 3.x
+- Git
+- CMake
+- Ninja
+
+Official ESP-IDF installation guide:
+
+https://docs.espressif.com/projects/esp-idf/en/v5.1.2/esp32/get-started/
+
+---
+
+# Installation
+
+Clone the repository:
 
 ```bash
-   get_idf menuconfig
+git clone https://github.com/clrvyntx/i4a.git
+cd i4a
 ```
 
-Variables:
+---
+
+## ESP-IDF Setup
+
+### Linux/macOS
+
+```bash
+mkdir -p ~/esp
+cd ~/esp
+
+git clone -b v5.1.2 --recursive https://github.com/espressif/esp-idf.git
+
+cd esp-idf
+./install.sh
+
+source export.sh
 ```
-CONFIG_LWIP_L2_TO_L3_COPY=y (Enable copy between Layer2 and Layer3 packets)
-CONFIG_LWIP_IP_FORWARD=y (Enable IP forwarding)
-LWIP_IP_DEBUG=y (Only for debug)
+
+### Windows
+
+Use the official ESP-IDF Tools Installer:
+
+https://docs.espressif.com/projects/esp-idf/en/v5.1.2/esp32/get-started/windows-setup.html
+
+---
+
+# Build Project
+
+From the project root:
+
+```bash
+idf.py build
 ```
 
-## ESP32 Component Testing Guide
+---
 
-This guide explains how to add unit tests to your ESP32 component and how to run them using the ESP-IDF unit testing framework.
+# Flash Firmware
 
-### Adding Tests to Your Component
+```bash
+idf.py -p PORT flash
+```
 
-1. Create a `test` directory in your component folder:
+Example:
 
-   ```
-   your_component/
-   ├── include/
-   ├── your_component.c
-   ├── CMakeLists.txt
-   └── test/
-       ├── test_your_component.c
-       └── CMakeLists.txt
-   ```
+```bash
+idf.py -p /dev/ttyUSB0 flash
+```
 
-2. Write your test cases in `test_your_component.c`:
+or on Windows:
 
-   ```c
-   #include "unity.h"
-   #include "your_component.h"
+```bash
+idf.py -p COM3 flash
+```
 
-   TEST_CASE("Test case description", "[your_component]")
-   {
-       // Your test code here
-       TEST_ASSERT_EQUAL(expected, your_function());
-   }
-   ```
+---
 
-3. Create a `CMakeLists.txt` file in the `test` directory:
+# Serial Monitor
 
-   ```cmake
-   idf_component_register(SRC_DIRS "."
-                          INCLUDE_DIRS "."
-                          REQUIRES your_component unity)
-   ```
+```bash
+idf.py -p PORT monitor
+```
 
-### Modifying the Unit Test App
+Exit monitor:
 
-1. Navigate to the unit test app directory:
+```text
+CTRL + ]
+```
 
-   ```
-   cd $IDF_PATH/tools/unit-test-app
-   ```
-
-2. Modify the `CMakeLists.txt` file to include your component's directory:
-
-   ```cmake
-   list(APPEND EXTRA_COMPONENT_DIRS "/path/to/your/components/directory")
-   ```
-
-   Replace `/path/to/your/components/directory` with the actual path to your components.
-
-
-### Running the Tests
-
-
-1. Navigate to the unit test app directory:
-
-   ```
-   cd $IDF_PATH/tools/unit-test-app
-   ```
-
-2. Configure the project:
-
-   ```
-   idf.py menuconfig
-   ```
-
-   Ensure that "Component config" -> "Unity unit testing library" -> "Enable unit tests" is enabled.
-
-3. Build the unit test app:
-
-   ```
-   idf.py -T build all build
-   ```
-   or 
-
-   ```
-   idf.py -T build your_component build
-   ```
-
-4. Flash the app to your ESP32:
-
-   ```
-   idf.py -p PORT flash
-   ```
-
-   Replace `PORT` with your ESP32's port (e.g., `/dev/ttyUSB0`).
-
-5. Run the tests:
-
-   ```
-   idf.py -p PORT monitor
-   ```
-
-   In the monitor, press 't' to see the test menu and select your tests to run.
-
-## Further Reading
-
-
-For more detailed information on ESP-IDF's build system and component structure, refer to the official ESP-IDF Programming Guide:
-
-- [ESP-IDF Build System](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/build-system.html#cmake-file-globbing)
-- [Unit Testing in ESP32](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/unit-tests.html)
+---
