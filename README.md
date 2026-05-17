@@ -59,10 +59,6 @@ The Ring Link layer is responsible for:
 
 Unlike traditional bus architectures, the ring topology allows the system to scale modularly while avoiding centralized communication bottlenecks.
 
-<p align="center">
-  <img src="./docs/esquema_spi_nodo.png" width="700">
-</p>
-
 ---
 
 ## Wireless Module
@@ -216,6 +212,10 @@ Each board assumes a specific role:
 - Access Point (AP)
 
 The AP board acts as the gateway between the internal ring and external wireless communication.
+
+<p align="center">
+  <img src="./docs/esquema_spi_nodo.png" width="700">
+</p>
 
 ---
 
