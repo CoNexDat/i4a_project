@@ -82,7 +82,7 @@ This module manages:
 - recovery mechanisms,
 - network interface integration using lwIP.
 
-- <p align="center">
+<p align="center">
   <img src="./docs/esquema_distribucion_de_red.png" width="700">
 </p>
 
