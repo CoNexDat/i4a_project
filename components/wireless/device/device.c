@@ -1,0 +1,471 @@
+#include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
+#include "esp_random.h"
+#include "esp_wifi.h"
+#include "nvs_flash.h"
+#include "esp_log.h"
+#include "client.h"
+#include "server.h"
+#include "task_config.h"
+#include "device.h"
+#include "config.h"
+
+#define STA_INTERVAL_SECS 10
+
+static const char *LOGGING_TAG = "device";
+static const char *dev_orientation[5] = {"_N_", "_S_", "_E_", "_W_", "_C_"};
+static TaskHandle_t station_task_handle = NULL;  // Tracks STA connect task
+
+// Function to initialize NVS (non-volatile storage)
+static esp_err_t init_nvs() {
+  esp_err_t ret = nvs_flash_init();
+  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    ret = nvs_flash_init();
+  }
+  return ret;
+}
+
+// Function to initialize the Wi-Fi interface
+esp_err_t device_wifi_init() {
+  // Initialize NVS
+  esp_err_t ret = init_nvs();
+  if (ret != ESP_OK) {
+    ESP_LOGE(LOGGING_TAG, "NVS initialization failed");
+    return ret;
+  }
+
+  // Initialize the ESP-NETIF library (for network interface management)
+  ESP_ERROR_CHECK(esp_netif_init());
+
+  // Create default event loop
+  ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+  // Initialize Wi-Fi configuration structure
+  wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+  ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+  return ESP_OK;
+}
+
+void device_init(DevicePtr device_ptr, const char *device_uuid, uint8_t device_orientation, const char *wifi_network_prefix, const char *wifi_network_password, uint8_t ap_channel_to_emit, uint8_t ap_max_sta_connections, uint8_t device_is_root, Device_Mode mode) {
+  device_ptr->mode = mode;
+  device_ptr->state = d_inactive;
+  device_ptr->device_is_root = device_is_root;
+  device_ptr->device_orientation = device_orientation;
+
+  AccessPoint ap = {};
+  device_ptr->access_point = ap;
+  device_ptr->access_point_ptr = &device_ptr->access_point;
+
+  Station station = {};
+  device_ptr->station = station;
+  device_ptr->station_ptr = &device_ptr->station;
+  
+
+  if (mode == AP) {
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    device_init_ap(device_ptr, ap_channel_to_emit, wifi_network_prefix, device_uuid, wifi_network_password, ap_max_sta_connections, device_orientation, device_is_root);
+  }
+
+  if (mode == STATION) {
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    device_init_station(device_ptr, wifi_network_prefix, device_orientation, device_uuid, wifi_network_password);
+  }
+
+  if(mode == AP_STATION){
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    device_init_ap(device_ptr, ap_channel_to_emit, wifi_network_prefix, device_uuid, wifi_network_password, ap_max_sta_connections, device_orientation, device_is_root);
+    device_init_station(device_ptr, wifi_network_prefix, device_orientation, device_uuid, wifi_network_password);
+  }
+
+}
+
+void device_init_ap(DevicePtr device_ptr, uint8_t channel, const char *wifi_network_prefix ,const char *device_uuid, const char *password, uint8_t max_sta_connections, uint16_t orientation, uint8_t is_root) {
+  // Generate the wifi ssid
+  char wifi_ssid[32];
+  memset(wifi_ssid, 0, sizeof(wifi_ssid));
+  strcpy(wifi_ssid, wifi_network_prefix);
+
+  bool is_center = (orientation == CONFIG_ID_CENTER);
+  if(!is_center){
+    strcat(wifi_ssid, dev_orientation[orientation]);
+    strcat(wifi_ssid, device_uuid);
+  }
+
+  ESP_LOGI(LOGGING_TAG, "Initializing AP with SSID: %s", wifi_ssid);
+
+  ap_init(device_ptr->access_point_ptr, channel, wifi_ssid, password, max_sta_connections, is_center, device_ptr->mode == AP_STATION);
+};
+
+void device_init_station(DevicePtr device_ptr, const char* wifi_ssid_like, uint16_t orientation, char* device_uuid, const char* password) {
+  station_init(device_ptr->station_ptr, wifi_ssid_like, orientation, device_uuid, password, device_ptr->mode == AP_STATION);
+};
+
+void device_set_network_ap(DevicePtr device_ptr, const char *network_cidr, const char *network_gateway, const char *network_mask) {
+  ap_set_network(device_ptr->access_point_ptr, network_cidr, network_gateway, network_mask);
+};
+
+void device_reset(DevicePtr device_ptr) {
+  if (device_ptr->state == d_active) {
+    if (device_ptr->mode == AP) {
+      device_stop_ap(device_ptr);
+    }
+    if (device_ptr->mode == STATION) {
+      device_disconnect_station(device_ptr);
+      device_stop_station(device_ptr);
+    }
+    if (device_ptr->mode == AP_STATION) {
+      device_stop_ap(device_ptr);
+      device_disconnect_station(device_ptr);
+      device_stop_station(device_ptr);
+    }
+    device_ptr->state = d_inactive;
+  }
+  device_destroy_netif(device_ptr);
+  device_ptr->sta_lock = false;
+  device_ptr->ap_lock  = false;
+  device_ptr->mode = NAN;
+}
+
+void device_destroy_netif(DevicePtr device_ptr){
+  if (device_ptr->mode == AP) {
+    ap_destroy_netif(device_ptr->access_point_ptr);
+  }
+
+  if (device_ptr->mode == STATION) {
+    station_destroy_netif(device_ptr->station_ptr);
+  }
+
+  if (device_ptr->mode == AP_STATION) {
+    ap_destroy_netif(device_ptr->access_point_ptr);
+    station_destroy_netif(device_ptr->station_ptr);
+  }
+}
+
+// AP
+
+void device_start_ap(DevicePtr device_ptr) {
+  if (ap_is_initialized(device_ptr->access_point_ptr)) {
+    ap_start(device_ptr->access_point_ptr);
+    device_ptr->state = d_active;
+  } else {
+    ESP_LOGE(LOGGING_TAG, "Access Point is not initialized");
+  }
+};
+
+void device_stop_ap(DevicePtr device_ptr) {
+  ap_stop(device_ptr->access_point_ptr);
+};
+
+void device_restart_ap(DevicePtr device_ptr) {
+  ap_restart(device_ptr->access_point_ptr);
+};
+
+// Station
+
+void device_start_station(DevicePtr device_ptr) {
+  if (station_is_initialized(device_ptr->station_ptr)) {
+    station_start(device_ptr->station_ptr);
+    device_ptr->state = d_active;
+  } else {
+    ESP_LOGE(LOGGING_TAG, "Station is not initialized");
+  }
+};
+
+static void device_connect_station_task(void* arg) {
+  DevicePtr device_ptr = (DevicePtr)arg;  // Get the device pointer from the task argument
+
+  // Wait in intervals of 10 seconds to avoid simultaneous node connection
+  vTaskDelay(pdMS_TO_TICKS(device_ptr->device_orientation * 1000 * STA_INTERVAL_SECS));
+
+  while (1) {
+    if (device_ptr->sta_lock) {
+      vTaskDelay(pdMS_TO_TICKS(60000)); // STA disabled, long sleep
+      continue;
+    }
+
+    if (!station_is_active(device_ptr->station_ptr)) {
+      ESP_LOGI(LOGGING_TAG, "Wi-Fi not connected. Scanning for APs...");
+      station_find_ap(device_ptr->station_ptr);
+
+      if (station_found_ap(device_ptr->station_ptr)) {
+        ESP_LOGI(LOGGING_TAG, "Wi-Fi found! Connecting...");
+        station_connect(device_ptr->station_ptr);
+      } else {
+        ESP_LOGE(LOGGING_TAG, "No Wi-Fi found. Re-scanning in 10s...");
+        vTaskDelay(pdMS_TO_TICKS(10000));
+      }
+    } else {
+      // Connected, sleep to reduce CPU usage
+      vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+  }
+
+  // Task deletion handled externally
+  station_task_handle = NULL;
+  vTaskDelete(NULL);
+
+}
+
+void device_connect_station(DevicePtr device_ptr) {
+  // Kill old STA task if it exists
+  if (station_task_handle != NULL) {
+    ESP_LOGI(LOGGING_TAG, "Killing previous STA connect task");
+    vTaskDelete(station_task_handle);
+    station_task_handle = NULL;
+  }
+
+  // Create new STA connect task
+  xTaskCreatePinnedToCore(
+    device_connect_station_task,
+    "device_connect_station_task",
+    TASK_DEVICE_STACK,
+    device_ptr,
+    TASK_DEVICE_PRIORITY,
+    &station_task_handle,
+    TASK_DEVICE_CORE
+  );
+}
+
+void device_disconnect_station(DevicePtr device_ptr) {
+  if (station_task_handle != NULL) {
+    ESP_LOGI(LOGGING_TAG, "Stopping STA connect task");
+    vTaskDelete(station_task_handle);
+    station_task_handle = NULL;
+  }
+
+  station_disconnect(device_ptr->station_ptr);
+}
+
+void device_restart_station(DevicePtr device_ptr) {
+  station_restart(device_ptr->station_ptr);
+};
+
+void device_stop_station(DevicePtr device_ptr) {
+  station_stop(device_ptr->station_ptr);
+};
+
+// Network interfaces
+
+esp_netif_t *device_get_netif(DevicePtr device_ptr){
+  if (device_ptr->mode == AP) {
+    return device_ptr->access_point_ptr->netif;
+  }
+
+  if (device_ptr->mode == STATION) {
+    return device_ptr->station_ptr->netif;
+  }
+
+  if(device_ptr->mode == AP_STATION) {
+    if(device_ptr->station_ptr->is_fully_connected){
+      return device_ptr->station_ptr->netif;
+    } else {
+      return device_ptr->access_point_ptr->netif;
+    }
+  }
+
+  return NULL;
+}
+
+// Wireless messages
+bool device_send_wireless_message(DevicePtr device_ptr, const uint8_t *msg, uint16_t len) {
+  if(device_ptr->mode == AP){
+    return server_send_message(msg, len);
+  }
+
+  if(device_ptr->mode == STATION){
+    return client_send_message(msg, len);
+  }
+
+  if(device_ptr->mode == AP_STATION){
+    if(device_ptr->station_ptr->is_fully_connected){
+      return client_send_message(msg, len);
+    } else {
+      return server_send_message(msg, len);
+    }
+  }
+
+  return false;
+}
+
+bool device_is_point_to_point_message(DevicePtr device_ptr, uint32_t dst) {
+  if(device_ptr->mode == AP){
+    return ((dst & device_ptr->access_point_ptr->ap_mask) == device_ptr->access_point_ptr->ap_subnet);
+  }
+
+  if(device_ptr->mode == STATION){
+    return ((dst & device_ptr->station_ptr->sta_mask) == device_ptr->station_ptr->sta_subnet);
+  }
+
+  if(device_ptr->mode == AP_STATION){
+    if(device_ptr->station_ptr->is_fully_connected){
+      return ((dst & device_ptr->station_ptr->sta_mask) == device_ptr->station_ptr->sta_subnet);
+    } else {
+      return ((dst & device_ptr->access_point_ptr->ap_mask) == device_ptr->access_point_ptr->ap_subnet);
+    }
+  }
+
+  return false;
+}
+
+// Device RSSI
+int8_t device_get_rssi(DevicePtr device_ptr) {
+  if (device_ptr->mode == AP) {
+    wifi_sta_list_t list;
+    esp_err_t err = esp_wifi_ap_get_sta_list(&list);
+
+    if (err == ESP_OK && list.num > 0) {
+      return list.sta[0].rssi;
+    } else {
+      return -127;
+    }
+  }
+
+  if (device_ptr->mode == STATION) {
+    wifi_ap_record_t ap_info = {};
+    esp_err_t err = esp_wifi_sta_get_ap_info(&ap_info);
+
+    if (err == ESP_OK) {
+      return ap_info.rssi;
+    }  else {
+      return -127;
+    }
+  }
+
+  if (device_ptr->mode == AP_STATION) {
+    if (device_ptr->station_ptr->is_fully_connected) {
+      wifi_ap_record_t ap_info = {};
+      esp_err_t err = esp_wifi_sta_get_ap_info(&ap_info);
+
+      if (err == ESP_OK) {
+        return ap_info.rssi;
+      }  else {
+        return -127;
+      }
+    } else {
+      wifi_sta_list_t list;
+      esp_err_t err = esp_wifi_ap_get_sta_list(&list);
+
+      if (err == ESP_OK && list.num > 0) {
+        return list.sta[0].rssi;
+      } else {
+        return -127;
+      }
+    }
+  }
+
+  return -127;
+}
+
+const char *device_get_link_name(DevicePtr device_ptr) {
+  if (device_ptr->mode == STATION || device_ptr->mode == AP_STATION) {
+    if (device_ptr->station_ptr->is_fully_connected) {
+      return (const char*)device_ptr->station_ptr->wifi_ap_found.ssid;
+    }
+  }
+
+  if (device_ptr->mode == AP || device_ptr->mode == AP_STATION) {
+    if (device_ptr->access_point_ptr->initialized) {
+      return device_ptr->access_point_ptr->ssid;
+    }
+  }
+
+  return "N/A";
+}
+
+uint8_t device_get_channel(DevicePtr device_ptr) {
+  if (device_ptr->mode == STATION || device_ptr->mode == AP_STATION) {
+    if (device_ptr->station_ptr->is_fully_connected) {
+      return device_ptr->station_ptr->wifi_ap_found.primary;
+    }
+  }
+
+  if (device_ptr->mode == AP || device_ptr->mode == AP_STATION) {
+    if (device_ptr->access_point_ptr->initialized) {
+      return device_ptr->access_point_ptr->channel;
+    }
+  }
+
+  return 0;
+}
+
+void device_set_max_tx_power(DevicePtr device_ptr, int8_t power) {
+  if (device_ptr->mode == NAN) {
+    ESP_LOGW(LOGGING_TAG, "Cannot set TX power: device not initialized");
+    return;
+  }
+
+  // Clamp to valid range
+  if (power < 8) power = 8;
+  if (power > 84) power = 84;
+
+  ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(power));
+
+  // Convert to real dBm
+  float real_dbm = power * 0.25f;
+  ESP_LOGI(LOGGING_TAG, "Wi-Fi max TX power set to %.2f dBm", real_dbm);
+}
+
+// Disable STA interface at runtime
+void device_disable_station(DevicePtr device_ptr) {
+  if (device_ptr == NULL) {
+    return;
+  }
+
+  device_ptr->sta_lock = true;
+  if (device_ptr->mode == STATION || device_ptr->mode == AP_STATION) {
+    station_disconnect(device_ptr->station_ptr);
+  }
+}
+
+// Enable STA interface at runtime
+void device_enable_station(DevicePtr device_ptr) {
+  if (device_ptr == NULL) {
+    return;
+  }
+
+  device_ptr->sta_lock = false;
+}
+
+// Disable AP interface at runtime
+void device_disable_ap(DevicePtr device_ptr) {
+  if (device_ptr == NULL) {
+    return;
+  }
+  
+  device_ptr->ap_lock = true;
+  if (device_ptr->mode == AP || device_ptr->mode == AP_STATION) {
+    ap_disconnect_all_stations(device_ptr->access_point_ptr);
+  }
+}
+
+// Enable AP interface at runtime
+void device_enable_ap(DevicePtr device_ptr) {
+  if (device_ptr == NULL) {
+    return;
+  }
+  
+  device_ptr->ap_lock = false;
+}
+
+bool device_is_sta_locked(DevicePtr device_ptr) {
+  if (device_ptr == NULL) {
+    return true;
+  } else {
+    return device_ptr->sta_lock;
+  }
+}
+
+bool device_is_ap_locked(DevicePtr device_ptr) {
+  if (device_ptr == NULL) {
+    return true;
+  } else {
+    return device_ptr->ap_lock;
+  }
+}
+
+bool device_is_apsta(DevicePtr device_ptr){
+  return device_ptr->mode == AP_STATION;
+}

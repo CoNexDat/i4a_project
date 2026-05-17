@@ -1,0 +1,70 @@
+#ifndef _NODE_H_
+#define _NODE_H_
+
+#include <stdint.h>
+#include <stdbool.h>
+#include "esp_netif.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// Node's device orientations, the values match the ones read in hardware
+typedef enum {
+    NODE_DEVICE_ORIENTATION_NORTH = 0,
+    NODE_DEVICE_ORIENTATION_SOUTH,
+    NODE_DEVICE_ORIENTATION_EAST,
+    NODE_DEVICE_ORIENTATION_WEST,
+    NODE_DEVICE_ORIENTATION_CENTER,
+} node_device_orientation_t;
+
+// Startup
+void node_setup(void); // Always call this before doing anything with this module
+
+// Device mode setting
+void node_set_as_ap(uint32_t network, uint32_t mask); // Sets device as AP with desired subnet/mask
+void node_set_as_sta(void); // Sets device as Station, scanning for nearby connections
+void node_set_network_settings(uint32_t network, uint32_t mask); // Sets the device's network and mask (for routing algorithm purposes, may not be the device's physical address)
+bool node_is_point_to_point_message(uint32_t dst); // Returns whether it's a message between point-to-point devices or not (useful for point-to-point connections that should bypass the routing algorithm)
+bool node_is_packet_for_this_subnet(uint32_t dst); // Returns whether the incoming packet is destined to the device's own subnet or not (useful for house or root devices)
+void node_disable_sta(void); // Disable the STA interface at runtime while keeping its settings
+void node_enable_sta(void);  // Enable the STA interface at runtime using the saved configuration
+void node_disable_ap(void);  // Disable the AP interface at runtime while keeping its settings
+void node_enable_ap(void);   // Enable the AP interface at runtime using the saved configuration
+bool node_is_sta_locked(void); // Returns whether the STA interface is enabled or not
+bool node_is_ap_locked(void); // Returns whether the AP interface is enabled or not
+bool node_is_device_apsta(void); // Returns whether the device is on AP+STA mode or not
+
+// Node parameters
+node_device_orientation_t node_get_device_orientation(void); // Orientation of node's specific device
+bool node_is_device_center_root(void); // Tells the device if they're center root or not
+int8_t node_get_device_rssi(void); // RSSI of node's current wireless link
+uint32_t node_get_device_subnet(void); // Returns the device subnet
+uint32_t node_get_device_mask(void);   // Returns the device mask
+const char *node_get_uuid(void); // Returns the node's UUID string
+const char *node_get_device_mac(void); // Returns the device's MAC string
+const char *node_get_link_name(void); // Returns the name of device's current wireless link
+int64_t node_get_device_uptime_minutes(void); // Returns the amount of time (in minutes) that the device has been initialized
+uint8_t node_get_device_channel(void); // Returns the device's currently assigned channel
+
+// Node communication functions
+bool node_send_wireless_message(const uint8_t *msg, uint16_t len); // Send a wireless message to the other side of the wireless link between two devices of different nodes
+bool node_broadcast_to_siblings(const uint8_t *msg, uint16_t len); // Broadcast a message to all devices of the same node
+
+// Node network interfaces
+esp_netif_t *node_get_wifi_netif(void); // Returns network interface for wireless link
+esp_netif_t *node_get_spi_netif(void); // Returns network interface for local communication
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // _NODE_H_
+
+
+
+
+
+
+
+
