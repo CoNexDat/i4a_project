@@ -266,8 +266,8 @@ https://docs.espressif.com/projects/esp-idf/en/v5.1.2/esp32/get-started/
 Clone the repository:
 
 ```bash
-git clone https://github.com/clrvyntx/i4a.git
-cd i4a
+git clone https://github.com/CoNexDat/i4a_project
+cd i4a_project
 ```
 
 ---
