@@ -20,6 +20,10 @@ The system is designed around modular communication components that can operate 
 - local inter-module communication,
 - distributed wireless connectivity.
 
+<p align="center">
+  <img src="./docs/esquema_distribucion_de_red.png" width="700">
+</p>
+
 ---
 
 # Architecture
@@ -77,10 +81,6 @@ This module manages:
 - dynamic connectivity,
 - recovery mechanisms,
 - network interface integration using lwIP.
-
-<p align="center">
-  <img src="./docs/esquema_distribucion_de_red.png" width="700">
-</p>
 
 ---
 
