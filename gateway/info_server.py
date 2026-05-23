@@ -1,33 +1,53 @@
 """
-ESP LAN JSON Receiver (Flask Server)
+ESP LAN UDP JSON Receiver
 
-This script starts a simple HTTP server that listens for JSON POST requests from ESP devices
-on the local network. It prints received data and responds with a confirmation.
+This script listens for UDP packets from ESP devices on the local network.
+Each UDP packet contains a JSON payload identical to the previous HTTP POST body.
 
 Usage:
-    1. Make sure your ESP devices are on the same LAN as this server.
+    1. Make sure your ESP devices are on the same LAN.
     2. Run the server:
          python info_server.py
-    3. ESP devices should send POST requests with JSON payload to:
-         http://10.255.255.254:8000/
+    3. ESP devices should send UDP packets to:
+         10.255.255.254:8000
 """
 
-from flask import Flask, request, jsonify
+import socket
+import json
 
-app = Flask(__name__)
+UDP_IP = "10.255.255.254"
+UDP_PORT = 8000
 
-@app.route('/', methods=['POST'])
-def receive_info():
-    data = request.get_json()
-    if not data:
-        return jsonify({"status": "error", "reason": "no JSON received"}), 400
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind((UDP_IP, UDP_PORT))
 
-    # Print the received JSON to verify
-    print("Received JSON from ESP:")
-    print(data)
+print(f"Listening on {UDP_IP}:{UDP_PORT}")
 
-    return jsonify({"status": "ok"}), 200
+while True:
+    data, addr = sock.recvfrom(4096)
 
-if __name__ == "__main__":
-    # Listen on the fixed IP 10.255.255.254 so ESPs on the LAN can reach it
-    app.run(host="10.255.255.254", port=8000)
+    print("\n====================")
+    print(f"From: {addr}")
+
+    try:
+        payload = json.loads(data.decode("utf-8"))
+    except Exception as e:
+        print("Failed to decode JSON:", e)
+        print("Raw data:", data)
+        continue
+
+    nodes = []
+    fields = payload.get("fields", [])
+    rows = payload.get("data", [])
+
+    for row in rows:
+        node = dict(zip(fields, row))
+        nodes.append(node)
+
+    result = {
+        "nodes": nodes,
+        "count": len(nodes),
+        "uptime_mins": payload.get("uptime_mins")
+    }
+
+    print(json.dumps(result, indent=2))
