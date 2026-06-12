@@ -1,4 +1,4 @@
-# Internet4All — Lightweight Embedded Mesh Networking Architecture for ESP32
+# ComNetAR: Internet4All — Lightweight Embedded Mesh Networking Architecture for ESP32
 
 ## Overview
 
