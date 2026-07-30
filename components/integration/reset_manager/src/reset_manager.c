@@ -5,6 +5,7 @@
 #include "esp_mac.h"
 #include "esp_system.h"
 #include <string.h>
+#include "traffic.h"
 #include "reset_manager/reset_manager.h"
 
 #define ROOT_UUID "000000000000"

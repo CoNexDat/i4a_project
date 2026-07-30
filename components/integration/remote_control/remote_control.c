@@ -5,6 +5,8 @@
 #include "freertos/task.h"
 #include "task_config.h"
 #include "remote_control.h"
+#include "traffic.h"
+#include "reset_manager/reset_manager.h"
 #include "node.h"
 
 #define PORT 3999
@@ -17,13 +19,15 @@ typedef enum remote_commands {
     AP_ENABLE = 0,
     AP_DISABLE,
     RESET_NODE,
+    ECHO,
     REMOTE_COMMAND_NUMBER
 } remote_commands_t;
 
 static const char *command_table[REMOTE_COMMAND_NUMBER] = {
     [AP_ENABLE]  = "ap_enable",
     [AP_DISABLE] = "ap_disable",
-    [RESET_NODE] = "reset_node"
+    [RESET_NODE] = "reset_node",
+    [ECHO] = "echo",
 };
 
 static const char *LOGGING_TAG = "remote_control_server";
@@ -87,7 +91,12 @@ static void apply_command(remote_commands_t command) {
     }
 
     if (command == RESET_NODE) {
+        ESP_LOGI(LOGGING_TAG, "Resetting device...");
         esp_restart();
+    }
+
+    if (command == ECHO) {
+        ESP_LOGI(LOGGING_TAG, "Received echo from gateway...");
     }
 
 }

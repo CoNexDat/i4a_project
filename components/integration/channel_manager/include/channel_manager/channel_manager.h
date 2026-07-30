@@ -14,7 +14,9 @@ typedef struct channel_manager {
 } channel_manager_t;
 
 void cm_init(ring_share_t *rs, node_device_orientation_t orientation);
-bool cm_provide_to_siblings(uint8_t connected_channel);
+bool cm_provide_to_siblings(uint8_t connected_channel,  const char *network_name);
+void cm_block_full_ap(const char *network_name);
 uint8_t cm_get_suggested_channel(void);
+bool cm_is_blocked_uuid(const char *network_name);
 
 #endif  // _CHANNEL_MANAGER_H_
