@@ -46,6 +46,7 @@ static void socket_read_loop(const int sock, const char *client_ip) {
   
   while (1) {
     int len = recv(sock, rx_buffer, sizeof(rx_buffer), 0);
+    
     if (len < 0) {
       ESP_LOGE(LOGGING_TAG, "Receive error from %s: errno %d", client_ip, errno);
       break;

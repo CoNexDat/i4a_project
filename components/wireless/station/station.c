@@ -33,6 +33,11 @@ static bool is_network_allowed(char* device_uuid, char* network_prefix, char* ne
     return false;
   }
 
+  // Must NOT contain UUIDs any other local device is connected to
+  if(cm_is_blocked_uuid(network_name)) {
+    return false;
+  }
+
   /* 
   // DEBUG: Connect ONLY to the allowed UUID
   const char *allowed_debug_uuid = "000000000000";
@@ -137,6 +142,12 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
   if (event_base == WIFI_EVENT) {
     switch (event_id) {
       case WIFI_EVENT_STA_DISCONNECTED:
+        wifi_event_sta_disconnected_t *disconn = (wifi_event_sta_disconnected_t *)event_data;
+        if (disconn->reason == WIFI_REASON_ASSOC_TOOMANY) {
+          cm_block_full_ap((const char *)stationPtr->wifi_ap_found.ssid);
+          s_retry_num = MAX_RETRIES;
+        }
+        
         if(stationPtr->is_fully_connected){
           client_close();
           if(stationPtr->is_apsta){
@@ -144,6 +155,7 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
           }
           stationPtr->is_fully_connected = false;
         }
+        
         if (s_retry_num < MAX_RETRIES) {
           esp_wifi_connect();
           s_retry_num++;
@@ -163,8 +175,8 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
     switch (event_id) {
       case IP_EVENT_STA_GOT_IP:
         if(stationPtr->is_fully_connected) {
+          cm_provide_to_siblings(stationPtr->wifi_ap_found.primary, (const char *)stationPtr->wifi_ap_found.ssid);
           if(!stationPtr->is_apsta){
-            cm_provide_to_siblings(stationPtr->wifi_ap_found.primary);
             im_http_client_start();
           } else {
             node_disable_ap();
@@ -261,5 +273,27 @@ void transform_wifi_ap_record_to_config(StationPtr stationPtr) {
   stationPtr->wifi_config.sta.bssid_set = true;
 }
 
+int8_t station_scan_best_rssi(StationPtr stationPtr) {
+  esp_wifi_scan_start(NULL, true);
 
+  wifi_ap_record_t ap;
+  int8_t best_rssi = -128;  // raw minimum possible RSSI
 
+  while (esp_wifi_scan_get_ap_record(&ap) == ESP_OK) {
+
+    if (ap.rssi < RSSI_THRESHOLD) {
+      continue;
+    }
+
+    if (!is_network_allowed(stationPtr->device_uuid, stationPtr->ssid_like, (char *)ap.ssid, stationPtr->is_apsta, stationPtr->device_orientation)) {
+      continue;
+    }
+
+    if (ap.rssi > best_rssi) {
+      best_rssi = ap.rssi;
+    }
+
+  }
+
+  return best_rssi;
+}
