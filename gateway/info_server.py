@@ -36,6 +36,9 @@ while True:
         print("Raw data:", data)
         continue
 
+    # Your ESP format:
+    # {"fields":[...], "data":[[...]...], "uptime_mins":...}
+
     nodes = []
     fields = payload.get("fields", [])
     rows = payload.get("data", [])
