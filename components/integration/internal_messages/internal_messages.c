@@ -5,6 +5,7 @@
 #include "info_manager/info_manager.h"
 #include "callbacks.h"
 #include "internal_messages.h"
+#include "node_ota/node_ota.h"
 
 static ring_share_t rs = { 0 };
 
@@ -15,6 +16,7 @@ void node_setup_internal_messages(uint8_t orientation){
     pm_init(&rs, orientation);
     im_init(&rs);
     rm_init(&rs);
+    ESP_ERROR_CHECK(node_ota_init(&rs, orientation));
 }
 
 ring_share_t *node_get_rs_instance(void){

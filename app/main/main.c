@@ -15,6 +15,7 @@
 #include "task_config.h"
 #include "info_manager/info_manager.h"
 #include "node.h"
+#include "node_ota/node_ota.h"
 
 #define ROOT_NETWORK 0x0A000000  // 10.0.0.0
 #define ROOT_MASK 0xFF000000 // 255.0.0.0
@@ -42,7 +43,13 @@ void routing_task(void *pvParameters) {
 }
 
 void app_main(void) {
+    node_ota_watch_boot();
+    node_ota_boot_trace("node_setup.begin");
     node_setup();
+    node_ota_boot_trace("node_setup.end");
+    node_ota_boot_trace("serial.begin");
+    ESP_ERROR_CHECK(node_ota_start_serial());
+    node_ota_boot_trace("serial.end");
 
     wireless_t *wl = node_get_wireless_instance();
     ring_share_t *rs = node_get_rs_instance();
@@ -67,18 +74,27 @@ void app_main(void) {
         rt_init_forwarder(rt);
     }
     
+    node_ota_boot_trace("rt_on_start.begin");
     rt_on_start(rt);
+    node_ota_boot_trace("rt_on_start.end");
+    node_ota_boot_trace("rt_on_tick.begin");
     rt_on_tick(rt, 1);
+    node_ota_boot_trace("rt_on_tick.end");
 
     if(orientation == NODE_DEVICE_ORIENTATION_CENTER && is_center_root){
+        node_ota_boot_trace("wifi_ap.begin");
         node_set_as_ap(ROOT_NETWORK, ROOT_MASK);
+        node_ota_boot_trace("wifi_ap.end");
     }
 
     if(orientation != NODE_DEVICE_ORIENTATION_CENTER && !is_center_root){
+        node_ota_boot_trace("wifi_sta.begin");
         node_set_as_sta();
+        node_ota_boot_trace("wifi_sta.end");
     }
     
-    xTaskCreatePinnedToCore(
+    node_ota_boot_trace("routing_task.begin");
+    BaseType_t routing_started = xTaskCreatePinnedToCore(
         routing_task,
         "routing_task",
         TASK_ROUTING_STACK,
@@ -87,5 +103,9 @@ void app_main(void) {
         NULL,
         TASK_ROUTING_CORE
     );
+    ESP_ERROR_CHECK(routing_started == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+    node_ota_boot_trace("routing_task.end");
+    ESP_ERROR_CHECK(node_ota_confirm_boot());
+    node_ota_boot_trace("app_main.ready");
 
 }
