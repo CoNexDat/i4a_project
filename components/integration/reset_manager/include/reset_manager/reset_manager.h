@@ -24,6 +24,9 @@ typedef struct reset_manager {
 } reset_manager_t;
 
 void rm_init(ring_share_t *rs);
+/* Restart this device without requiring a working ring.
+ * The caller controls OTA confirmation or rollback before restarting. */
+void rm_restart_local(void);
 bool rm_broadcast_reset(void);
 bool rm_broadcast_startup_info(bool is_root);
 bool rm_is_device_up(void);

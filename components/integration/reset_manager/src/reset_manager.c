@@ -42,7 +42,7 @@ static void rm_on_sibling_message(void *ctx, const uint8_t *msg, uint16_t len) {
             } else {
                 ESP_LOGW(TAG, "Reset signal received: resetting device");
                 vTaskDelay(pdMS_TO_TICKS(RESET_BROADCAST_WAIT_MS)); // Wait for the broadcast to be fully passed on to the ring
-                esp_restart();
+                rm_restart_local();
             }
 
             break;
@@ -67,6 +67,10 @@ static void rm_on_sibling_message(void *ctx, const uint8_t *msg, uint16_t len) {
             ESP_LOGW(TAG, "Unknown message opcode: 0x%02X", msg[0]);
             break;
     }
+}
+
+void rm_restart_local(void) {
+    esp_restart();
 }
 
 // Initialize reset manager
