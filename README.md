@@ -308,6 +308,12 @@ idf.py build
 
 # Flash Firmware
 
+For updates of all boards in a node through the center's USB-UART, see
+[Actualización del firmware del nodo](docs/actualizacion_firmware.md).
+The first installation requires flashing every board with the OTA bootloader,
+partition table and application. Subsequent updates use `gateway/flash_node.py`.
+Build from `app/`; this OTA implementation targets ESP-IDF 5.4.1.
+
 ```bash
 idf.py -p PORT flash
 ```
