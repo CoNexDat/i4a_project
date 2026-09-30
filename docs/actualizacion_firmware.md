@@ -432,8 +432,8 @@ El runner también compara las tramas C/Python y rechaza tramas corruptas y trun
 ### Antecedente de prueba física de recuperación (2026-09-30)
 
 Esta prueba se realizó en la rama de desarrollo del fork, antes de separar OTA
-sobre upstream. No valida el firmware de esta rama aislada: se debe repetir la
-carga completa en las cinco placas con el binario construido desde esta rama.
+sobre upstream. Es un antecedente del mecanismo de recuperación; la prueba de
+la rama aislada se describe a continuación.
 
 El registro `ota-recuperacion.log`, capturado por COM5 con los cinco roles,
 termina con `Verified: every selected role booted and confirmed the new firmware.`
@@ -451,7 +451,26 @@ Esta ejecución validó la recuperación automática y la verificación final de
 los cinco roles con aquel firmware. No identifica la causa interna del bloqueo
 ni demuestra estabilidad prolongada: el log finaliza tras la consulta satisfactoria.
 
-Antes de usarlo en campo, probar con el nodo físico: consulta de todos los roles,
+### Prueba física de la rama OTA sobre upstream (2026-09-30)
+
+El registro `ota-upstream.log` valida una carga completa por COM5 en los cinco
+roles de la rama `feat/node-ota` (commit `ecd1050`). El hash ELF esperado y
+reportado por todas las placas es
+`7c79d76160ad49eea03c8a900f8b5e8dcf506a25e5103029ce1c98a197ecb841`.
+
+El central confirmó la imagen a los 32292 ms y ejecutó `recovery.local_restart`
+a los 120002 ms. La consulta INFO seq=1809, después del nuevo arranque, recibió
+los cinco roles en `0x20000`, con `phase=0`, `session=0`, `pending_verify=0` y
+`recovery_pending=0`. El cargador terminó con
+`Verified: every selected role booted and confirmed the new firmware.`
+
+Este registro no contiene timeouts `Boot INFO failed` ni intentos 2/3 o 3/3.
+Por tanto, valida la actualización y el reinicio automático en esta rama, pero
+no reproduce el bloqueo observado en el fork ni demuestra que el reinicio sea
+necesario en todos los casos. No establece la causa de aquel bloqueo ni valida
+estabilidad prolongada o todas las funciones de routing y modos.
+
+Antes de usarlo en campo, completar las pruebas con el nodo físico: consulta de todos los roles,
 carga completa, desconexión del USB durante DATA, pérdida de alimentación durante
 la activación y arranque de una imagen que falle antes de confirmarse. Las pruebas
 en PC y la compilación no validan los tiempos SPI/UART ni la recuperación eléctrica.
