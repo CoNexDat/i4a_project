@@ -3,6 +3,7 @@
 #include "esp_event.h"
 #include "esp_wifi.h"
 #include "lwip/ip_addr.h"
+#include "lwip/tcpip.h"
 #include "client.h"
 #include "channel_manager/channel_manager.h"
 #include "info_manager/info_manager.h"
@@ -231,14 +232,24 @@ void station_restart(StationPtr stationPtr) {
   station_start(stationPtr);
 }
 
+// Runs in TCP/IP context, after any packet currently using this interface.
+static void station_detach_routing_netif(void *ctx) {
+  esp_netif_t **slot = (esp_netif_t **)ctx;
+  *slot = NULL;
+}
+
 void station_destroy_netif(StationPtr stationPtr) {
   if (stationPtr->netif) {
     ESP_LOGW(LOGGING_TAG, "Destroying STA netif...");
-    node_traffic_stop(stationPtr->netif);
+    esp_netif_t *netif = stationPtr->netif;
+    // Withdraw from custom routing before ESP-IDF frees the interface.
+    // Never call this destructor from the TCP/IP task itself.
+    ESP_ERROR_CHECK(tcpip_callback_wait(station_detach_routing_netif, &stationPtr->netif) == ERR_OK
+                    ? ESP_OK : ESP_FAIL);
+    node_traffic_stop(netif);
     esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler);
     esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler);
-    esp_netif_destroy_default_wifi(stationPtr->netif);
-    stationPtr->netif = NULL;  // Prevent reuse or double free
+    esp_netif_destroy_default_wifi(netif);
   } else {
     ESP_LOGI(LOGGING_TAG, "AP netif already destroyed or not initialized.");
   }

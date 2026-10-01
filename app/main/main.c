@@ -27,9 +27,17 @@ static const char *TAG = "main";
 static sync_t _sync = { 0 };
 static shared_state_t ss = { 0 };
 
-struct netif *custom_ip4_route_src_hook(const ip4_addr_t *src, const ip4_addr_t *dest) {
-    uint32_t src_ip = lwip_ntohl(ip4_addr_get_u32(src));
+struct netif *custom_ip4_route_src_hook(
+    const ip4_addr_t *src, const ip4_addr_t *dest)
+{
+    if (dest == NULL) {
+        return NULL;
+    }
+
+    // lwIP puede consultar una ruta sin proporcionar el origen.
+    uint32_t src_ip = src ? lwip_ntohl(ip4_addr_get_u32(src)) : 0;
     uint32_t dst_ip = lwip_ntohl(ip4_addr_get_u32(dest));
+
     return node_do_routing(src_ip, dst_ip);
 }
 
