@@ -1,0 +1,5 @@
+.git
+.worktrees
+**/build
+.i4a-home
+firmware_bundle_*
