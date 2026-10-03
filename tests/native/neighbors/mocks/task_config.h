@@ -1,0 +1,4 @@
+#pragma once
+#define TASK_CALLBACK_STACK 4096
+#define TASK_CALLBACK_PRIORITY 0
+#define TASK_CALLBACK_CORE 0

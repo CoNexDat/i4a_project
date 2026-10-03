@@ -9,6 +9,7 @@ extern "C" {
 
 void server_create();
 void server_close();
+void server_wait_stopped(void);
 bool server_send_message(const uint8_t *msg, uint16_t len);
 
 #ifdef __cplusplus

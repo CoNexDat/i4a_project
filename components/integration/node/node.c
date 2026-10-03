@@ -329,6 +329,13 @@ void node_disable_sta(void) {
     device_disable_station(node_ptr->node_device_ptr);
 }
 
+void node_reject_wireless_peer(void) {
+    if (node_ptr->node_device_ptr->mode == STATION)
+        station_disconnect(node_ptr->node_device_ptr->station_ptr);
+    else if (node_ptr->node_device_ptr->mode == AP)
+        ap_disconnect_all_stations(node_ptr->node_device_ptr->access_point_ptr);
+}
+
 void node_enable_sta(void) {
     device_enable_station(node_ptr->node_device_ptr);
 }

@@ -16,6 +16,7 @@
 #include "info_manager/info_manager.h"
 #include "node.h"
 #include "node_ota/node_ota.h"
+#include "neighbor_manager/neighbor_manager.h"
 
 #define ROOT_NETWORK 0x0A000000  // 10.0.0.0
 #define ROOT_MASK 0xFF000000 // 255.0.0.0
@@ -47,6 +48,7 @@ void routing_task(void *pvParameters) {
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));
         rt_on_tick(rt, 1000);
+        nm_tick();
     }
 }
 
@@ -64,6 +66,8 @@ void app_main(void) {
     routing_t *rt = node_get_rt_instance();
     node_device_orientation_t orientation = node_get_device_orientation();
     bool is_center_root = node_is_device_center_root();
+
+    ESP_ERROR_CHECK(nm_init(rs, orientation, node_get_uuid()) ? ESP_OK : ESP_ERR_NO_MEM);
 
     sync_init(&_sync, rs, orientation + ROUTING_ORIENTATION_OFFSET);
     ss_init(&ss, &_sync, rs, orientation + ROUTING_ORIENTATION_OFFSET);

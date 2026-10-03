@@ -107,10 +107,15 @@ void device_set_network_ap(DevicePtr device_ptr, const char *network_cidr, const
 void device_reset(DevicePtr device_ptr) {
   if (device_ptr->state == d_active) {
     if (device_ptr->mode == AP) {
+      device_ptr->access_point_ptr->stopping = true;
+      server_close();
+      server_wait_stopped();
       device_stop_ap(device_ptr);
     }
     if (device_ptr->mode == STATION) {
       device_disconnect_station(device_ptr);
+      client_close();
+      client_wait_stopped();
       device_stop_station(device_ptr);
     }
     device_ptr->state = d_inactive;

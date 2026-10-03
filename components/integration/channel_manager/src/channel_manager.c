@@ -2,20 +2,24 @@
 #include "channel_manager/channel_manager.h"
 #include "esp_random.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "esp_err.h"
+#include "neighbor_manager/neighbor_manager.h"
+#include "os/os.h"
 
 #define CHANNELS 5
 #define MAX_PEERS 4
 #define MAX_NETWORK_NAME_LENGTH 33
-#define NETWORK_NAME_UUID_OFFSET 6
-#define UUID_LEN 12
+#define FULL_AP_COOLDOWN_MS 30000
 
 static const char *TAG = "channel_manager";
 
 static const uint8_t formation_1[CHANNELS] = {1, 7, 4, 10, 11};
 static const uint8_t formation_2[CHANNELS] = {5, 11, 8, 2, 11};
 
-static char blocked_networks[MAX_PEERS][UUID_LEN + 1] = {"000000000001", "000000000002", "000000000003", "000000000004"}; // Use unblocked UUIDs for startup
-static char full_networks[MAX_PEERS][UUID_LEN + 1] = {"000000000001", "000000000002", "000000000003", "000000000004"}; // Use unblocked UUIDs for startup
+static char full_networks[MAX_PEERS][MAX_NETWORK_NAME_LENGTH];
+static uint64_t full_deadlines[MAX_PEERS];
+static mutex_t full_lock;
 static uint8_t full_network_index = 0; // For keeping track of the current array index
 
 static channel_manager_t channel_manager = { 0 };
@@ -34,15 +38,6 @@ static void on_sibling_message(void *ctx, const uint8_t *msg, uint16_t len) {
     }
 
     const cm_message_t *packet = (const cm_message_t *)msg;
-    uint8_t network_orientation = packet->orientation;
-    if (network_orientation >= MAX_PEERS) {
-        network_orientation = MAX_PEERS - 1;
-    }
-    
-    memcpy(blocked_networks[network_orientation], packet->network_name + NETWORK_NAME_UUID_OFFSET, UUID_LEN);
-    blocked_networks[network_orientation][UUID_LEN] = '\0';
-    ESP_LOGI(TAG, "Stored network in block list: orientation=%d, ssid=%s", network_orientation, blocked_networks[network_orientation]);
-
     // After provision the device has already assigned channels
     if(!node_is_network_provided()) {
         node_disable_sta(); // Disable STA to avoid multiple connections during initial node discovery
@@ -53,6 +48,7 @@ static void on_sibling_message(void *ctx, const uint8_t *msg, uint16_t len) {
 }
 
 void cm_init(ring_share_t *rs, node_device_orientation_t orientation) {
+    ESP_ERROR_CHECK(mutex_create(&full_lock) ? ESP_OK : ESP_ERR_NO_MEM);
     cm->rs = rs;
     cm->orientation = orientation;
     cm->suggested_channel = formation_1[cm->orientation];
@@ -102,11 +98,13 @@ bool cm_provide_to_siblings(uint8_t connected_channel,  const char *network_name
 }
 
 void cm_block_full_ap(const char *network_name) {
-    memcpy(full_networks[full_network_index],network_name + NETWORK_NAME_UUID_OFFSET, UUID_LEN);
-    full_networks[full_network_index][UUID_LEN] = '\0';
-
-    ESP_LOGI(TAG, "Stored full network at slot %d: %s", full_network_index, full_networks[full_network_index]);
-    full_network_index = (full_network_index + 1) % MAX_PEERS;
+    char uuid[NM_UUID_LEN + 1];
+    if (!nm_parse_ssid(network_name, uuid, NULL)) return;
+    WITH_LOCK(&full_lock, {
+        strncpy(full_networks[full_network_index], network_name, MAX_NETWORK_NAME_LENGTH - 1);
+        full_deadlines[full_network_index] = (uint64_t)esp_timer_get_time() / 1000 + FULL_AP_COOLDOWN_MS;
+        full_network_index = (full_network_index + 1) % MAX_PEERS;
+    });
 }
 
 // Expose the suggested channel
@@ -121,13 +119,15 @@ uint8_t cm_get_suggested_channel(void) {
 
 // Check for blocked UUIDs
 bool cm_is_blocked_uuid(const char *network_name) {
-    for (int i = 0; i < MAX_PEERS; i++) {
-        if (strstr(network_name, blocked_networks[i]) != NULL) {
-            return true;
+    char uuid[NM_UUID_LEN + 1];
+    if (!nm_parse_ssid(network_name, uuid, NULL) || nm_is_blocked_uuid(uuid)) return true;
+    bool blocked = false;
+    uint64_t now = (uint64_t)esp_timer_get_time() / 1000;
+    WITH_LOCK(&full_lock, {
+        for (int i = 0; i < MAX_PEERS; i++) {
+            if (full_deadlines[i] > now && strcmp(network_name, full_networks[i]) == 0)
+                blocked = true;
         }
-        if (strstr(network_name, full_networks[i]) != NULL) {
-            return true;
-        }
-    }
-    return false;
+    });
+    return blocked;
 }

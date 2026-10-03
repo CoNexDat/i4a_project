@@ -18,6 +18,10 @@ el protocolo de ruteo y todo el código y configuración OTA existente. Los bina
 históricos no se incorporan: se exportan bundles desde el build actual, incluyendo
 todas las imágenes de `flash_args`. El contenedor usa ESP-IDF 5.4.1.
 
+La protección posterior contra enlaces recíprocos incorpora un transporte de
+admisión previo al ruteo y reservas por UUID coordinadas por SPI. Sus requisitos
+de actualización y pruebas están en [protección de vecinos](neighbor-link-protection.md).
+
 ## Condiciones y validación en placas
 
 La copia de subred/máscara del ciclo AP/STA queda fija durante la vida de esa tarea,
@@ -42,6 +46,7 @@ logs de las placas. Mantener una medición de pila y memoria libre bajo carga.
 ```bash
 python -m unittest discover -s tests -v
 python tests/run_native_ota.py --cc cc
+python tests/run_native_neighbors.py --cc cc
 idf.py -C app build
 ```
 

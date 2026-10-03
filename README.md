@@ -355,4 +355,5 @@ CTRL + ]
 - [Hardware and wiring](docs/hardware.md), [KiCad sources](docs/kicad/README.md).
 - [Software architecture](docs/software.md), [repository overview](auxiliar/contexto_repo.md).
 - [Imported stability changes and validation](docs/comnetar-integration.md).
+- [One link per pair of nodes: admission, compatibility and tests](docs/neighbor-link-protection.md).
 - [Historical September 2026 debugging report](docs/informe-depuracion-reinicios-2026-09.md).

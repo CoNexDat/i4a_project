@@ -44,6 +44,7 @@ void ap_init(AccessPointPtr ap, uint8_t wifi_channel, const char *wifi_ssid, con
   ap->channel = wifi_channel;
   ap->is_center = is_center;
   ap->server_is_up = false;
+  ap->stopping = false;
   ap->is_apsta = is_apsta;
   ap->initialized = true;
 }
@@ -118,6 +119,7 @@ void ap_set_network(AccessPointPtr ap, const char *network_cidr, const char *net
 };
 
 void ap_start(AccessPointPtr ap) {
+  ap->stopping = false;
   ESP_LOGI(LOGGING_TAG, "Starting AP");
   ap->state = active;
   ESP_ERROR_CHECK(esp_wifi_start());
@@ -127,6 +129,7 @@ void ap_start(AccessPointPtr ap) {
 };
 
 void ap_stop(AccessPointPtr ap){
+  ap->stopping = true;
   ESP_LOGI(LOGGING_TAG, "Stopping AP");
   ap->state = inactive;
   ESP_ERROR_CHECK(esp_wifi_stop());
@@ -172,6 +175,7 @@ void ap_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, 
     switch (event_id) {
 
       case WIFI_EVENT_AP_STACONNECTED:
+        if (ap->stopping) break;
         if (!node_is_ap_locked()) {
           if (!ap->is_center && !ap->server_is_up) {
             server_create();

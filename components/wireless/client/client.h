@@ -9,6 +9,7 @@ extern "C" {
 
 void client_open();
 void client_close();
+void client_wait_stopped(void);
 bool client_send_message(const uint8_t *msg, uint16_t len);
 
 #ifdef __cplusplus
