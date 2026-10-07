@@ -23,6 +23,7 @@ typedef enum component_id {
     RS_INFO_MANAGER = 5,
     RS_PRIORITY_MANAGER = 6,
     RS_NODE_OTA = 7,
+    RS_NEIGHBOR_MANAGER = 8,
 
     /* Keep this variant last */
     RS_LAST_COMPONENT_ID,

@@ -12,6 +12,9 @@ CONFIG_LOG_DEFAULT_LEVEL_INFO=n
 CONFIG_LOG_DEFAULT_LEVEL_DEBUG=n
 CONFIG_LOG_DEFAULT_LEVEL_VERBOSE=n
 
+# Wi-Fi/IP event handlers broadcast ring-link packets on the sys_evt stack.
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=6144
+
 # Node OTA: install the bootloader and partition table once on every board.
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y

@@ -3,6 +3,7 @@
 #include "esp_event.h"
 #include "esp_wifi.h"
 #include "lwip/ip_addr.h"
+#include "lwip/tcpip.h"
 #include "client.h"
 #include "channel_manager/channel_manager.h"
 #include "info_manager/info_manager.h"
@@ -71,6 +72,8 @@ void station_init(StationPtr stationPtr, const char* wifi_ssid_like, uint8_t ori
   stationPtr->is_fully_connected = false;
   stationPtr->is_apsta = is_apsta;
   stationPtr->initialized = true;
+  stationPtr->event_handlers_registered = false;
+  stationPtr->stopping = false;
 
   esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
   assert(sta_netif);
@@ -138,6 +141,14 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
     switch (event_id) {
       case WIFI_EVENT_STA_DISCONNECTED:
         wifi_event_sta_disconnected_t *disconn = (wifi_event_sta_disconnected_t *)event_data;
+        if (stationPtr->stopping) {
+          client_close();
+          stationPtr->is_fully_connected = false;
+          stationPtr->ap_found = false;
+          stationPtr->state = s_inactive;
+          s_retry_num = 0;
+          break;
+        }
         if (disconn->reason == WIFI_REASON_ASSOC_TOOMANY) {
           cm_block_full_ap((const char *)stationPtr->wifi_ap_found.ssid);
           s_retry_num = MAX_RETRIES;
@@ -166,8 +177,8 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
   if (event_base == IP_EVENT) {
     switch (event_id) {
       case IP_EVENT_STA_GOT_IP:
+        if (stationPtr->stopping) break;
         if(stationPtr->is_fully_connected) {
-          cm_provide_to_siblings(stationPtr->wifi_ap_found.primary, (const char *)stationPtr->wifi_ap_found.ssid);
           if(!stationPtr->is_apsta){
             im_http_client_start();
           }
@@ -203,11 +214,15 @@ void station_start(StationPtr stationPtr) {
 }
 
 void station_connect(StationPtr stationPtr) {
+  stationPtr->stopping = false;
   ESP_LOGI(LOGGING_TAG, "Connecting to %s...", stationPtr->wifi_config.sta.ssid);
   ESP_ERROR_CHECK(esp_netif_dhcpc_start(stationPtr->netif));
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &stationPtr->wifi_config));
-  ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, stationPtr));
-  ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, stationPtr));
+  if (!stationPtr->event_handlers_registered) {
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, stationPtr));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, stationPtr));
+    stationPtr->event_handlers_registered = true;
+  }
   node_traffic_start(stationPtr->netif);
   s_retry_num = 0;
   stationPtr->state = s_active;
@@ -215,6 +230,7 @@ void station_connect(StationPtr stationPtr) {
 }
 
 void station_disconnect(StationPtr stationPtr) {
+  stationPtr->stopping = true;
   if(stationPtr->state == s_active){
     s_retry_num = MAX_RETRIES;
     ESP_ERROR_CHECK(esp_wifi_disconnect());
@@ -231,14 +247,25 @@ void station_restart(StationPtr stationPtr) {
   station_start(stationPtr);
 }
 
+// Runs in TCP/IP context, after any packet currently using this interface.
+static void station_detach_routing_netif(void *ctx) {
+  esp_netif_t **slot = (esp_netif_t **)ctx;
+  *slot = NULL;
+}
+
 void station_destroy_netif(StationPtr stationPtr) {
   if (stationPtr->netif) {
     ESP_LOGW(LOGGING_TAG, "Destroying STA netif...");
-    node_traffic_stop(stationPtr->netif);
+    esp_netif_t *netif = stationPtr->netif;
+    // Withdraw from custom routing before ESP-IDF frees the interface.
+    // Never call this destructor from the TCP/IP task itself.
+    ESP_ERROR_CHECK(tcpip_callback_wait(station_detach_routing_netif, &stationPtr->netif) == ERR_OK
+                    ? ESP_OK : ESP_FAIL);
+    node_traffic_stop(netif);
     esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler);
     esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler);
-    esp_netif_destroy_default_wifi(stationPtr->netif);
-    stationPtr->netif = NULL;  // Prevent reuse or double free
+    stationPtr->event_handlers_registered = false;
+    esp_netif_destroy_default_wifi(netif);
   } else {
     ESP_LOGI(LOGGING_TAG, "AP netif already destroyed or not initialized.");
   }

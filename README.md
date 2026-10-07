@@ -153,7 +153,7 @@ The ESP32 platform was selected because it provides:
 
 The system is built using:
 
-- ESP-IDF v5.1.2
+- ESP-IDF v5.4.1
 - FreeRTOS
 - lwIP
 
@@ -249,7 +249,7 @@ These pins determine the role assigned to each ESP32 inside the node.
 
 Before building the project, install:
 
-- ESP-IDF v5.1.2
+- ESP-IDF v5.4.1
 - Python 3.x
 - Git
 - CMake
@@ -257,7 +257,7 @@ Before building the project, install:
 
 Official ESP-IDF installation guide:
 
-https://docs.espressif.com/projects/esp-idf/en/v5.1.2/esp32/get-started/
+https://docs.espressif.com/projects/esp-idf/en/v5.4.1/esp32/get-started/
 
 ---
 
@@ -280,7 +280,7 @@ cd i4a_project
 mkdir -p ~/esp
 cd ~/esp
 
-git clone -b v5.1.2 --recursive https://github.com/espressif/esp-idf.git
+git clone -b v5.4.1 --recursive https://github.com/espressif/esp-idf.git
 
 cd esp-idf
 ./install.sh
@@ -292,7 +292,7 @@ source export.sh
 
 Use the official ESP-IDF Tools Installer:
 
-https://docs.espressif.com/projects/esp-idf/en/v5.1.2/esp32/get-started/windows-setup.html
+https://docs.espressif.com/projects/esp-idf/en/v5.4.1/esp32/get-started/windows-setup.html
 
 ---
 
@@ -301,6 +301,7 @@ https://docs.espressif.com/projects/esp-idf/en/v5.1.2/esp32/get-started/windows-
 From the project root:
 
 ```bash
+cd app
 idf.py build
 ```
 
@@ -345,3 +346,14 @@ CTRL + ]
 ```
 
 ---
+
+
+## Build, deployment and hardware resources
+
+- [Docker build and USB flashing](CONTAINER.md) (`./i4a`, ESP-IDF 5.4.1).
+- [Raspberry Pi USB flasher and generated bundles](auxiliar/README.md).
+- [Hardware and wiring](docs/hardware.md), [KiCad sources](docs/kicad/README.md).
+- [Software architecture](docs/software.md), [repository overview](auxiliar/contexto_repo.md).
+- [Imported stability changes and validation](docs/comnetar-integration.md).
+- [One link per pair of nodes: admission, compatibility and tests](docs/neighbor-link-protection.md).
+- [Historical September 2026 debugging report](docs/informe-depuracion-reinicios-2026-09.md).

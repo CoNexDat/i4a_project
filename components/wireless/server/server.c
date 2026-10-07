@@ -6,207 +6,102 @@
 #include "callbacks.h"
 #include "task_config.h"
 #include "server.h"
+#include "peer_session.h"
+#include "node.h"
 
 #define PORT 3999
-#define KEEPALIVE_IDLE 5     // start probing after 5s idle
-#define KEEPALIVE_INTERVAL 5  // probe every 5s
-#define KEEPALIVE_COUNT 3      // drop after 3 failed probes
-#define BUFFER_SIZE 512
 
 static const char *LOGGING_TAG = "tcp_server";
+static volatile bool server_is_up;
+static TaskHandle_t volatile server_task;
+static peer_session_t session;
+static bool session_initialized;
 
-static int client_sock = -1;
-static int listen_sock = -1;
-static bool server_is_up = false;
-
-static uint32_t peer_net = 0;
-static uint32_t peer_mask = 0;
-
-static bool get_network_address_and_mask(void) {
-  esp_netif_ip_info_t ip_info;
-  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
-
-  if (!netif || esp_netif_get_ip_info(netif, &ip_info) != ESP_OK) {
-    ESP_LOGE(LOGGING_TAG, "Failed to get network info");
-    return false;
-  }
-
-  peer_net = ntohl(ip_info.ip.addr & ip_info.netmask.addr);
-  peer_mask = ntohl(ip_info.netmask.addr);
-
-  return true;
+static bool get_network(uint32_t *net, uint32_t *mask) {
+    esp_netif_ip_info_t info;
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    if (!netif || esp_netif_get_ip_info(netif, &info) != ESP_OK) return false;
+    *net = ntohl(info.ip.addr & info.netmask.addr);
+    *mask = ntohl(info.netmask.addr);
+    return true;
 }
 
-// Function to read data from the client socket
-static void socket_read_loop(const int sock, const char *client_ip) {
-
-  uint8_t rx_buffer[BUFFER_SIZE];
-  client_sock = sock;
-  node_on_peer_connected(peer_net, peer_mask, PEER_SERVER);
-  
-  while (1) {
-    int len = recv(sock, rx_buffer, sizeof(rx_buffer), 0);
-    
-    if (len < 0) {
-      ESP_LOGE(LOGGING_TAG, "Receive error from %s: errno %d", client_ip, errno);
-      break;
-    } else if (len == 0) {
-      ESP_LOGW(LOGGING_TAG, "Client %s disconnected gracefully", client_ip);
-      break;
+static void socket_read_loop(int sock, uint32_t net, uint32_t mask) {
+    bool admitted = peer_session_open(&session, sock, false, NULL);
+    if (admitted && server_is_up) {
+        node_on_peer_connected(net, mask, PEER_SERVER);
+        uint8_t buffer[PEER_SESSION_MAX_MESSAGE];
+        while (server_is_up) {
+            int len = peer_session_receive(&session, buffer, sizeof(buffer));
+            if (len <= 0) break;
+            node_on_peer_message(buffer, len);
+        }
+        peer_session_close(&session);
+        node_on_peer_lost(net, mask, PEER_SERVER);
     } else {
-      node_on_peer_message(rx_buffer, len);
+        peer_session_close(&session);
+        if (server_is_up) {
+            ESP_LOGW(LOGGING_TAG, "Peer admission rejected; releasing AP association");
+            node_reject_wireless_peer();
+        }
     }
-  }
-
-  node_on_peer_lost(peer_net, peer_mask, PEER_SERVER);
-  client_sock = -1;
 }
 
-// Function to handle the server task
-static void tcp_server_task(void *pvParameters) {
-  char addr_str[128];
-  int addr_family = AF_INET;
-  int ip_protocol = IPPROTO_IP;
-  struct sockaddr_in dest_addr;
-
-  dest_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  dest_addr.sin_family = AF_INET;
-  dest_addr.sin_port = htons(PORT);
-
-  if (!get_network_address_and_mask()) {
-    ESP_LOGE(LOGGING_TAG, "Failed to get network IP and mask");
-    vTaskDelete(NULL);
-    return;
-  }
-
-  // Create the listening socket
-  listen_sock = socket(addr_family, SOCK_STREAM, ip_protocol);
-  if (listen_sock < 0) {
-    ESP_LOGE(LOGGING_TAG, "Unable to create socket: errno %d", errno);
-    vTaskDelete(NULL);
-    return;
-  }
-
-  int opt = 1;
-  setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
-  ESP_LOGI(LOGGING_TAG, "Socket created");
-
-  int err = bind(listen_sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
-  if (err != 0) {
-    ESP_LOGE(LOGGING_TAG, "Socket unable to bind: errno %d", errno);
-    goto CLEAN_UP;
-  }
-
-  ESP_LOGI(LOGGING_TAG, "Socket bound, port %d", PORT);
-
-  err = listen(listen_sock, 1);
-  if (err != 0) {
-    ESP_LOGE(LOGGING_TAG, "Error occurred during listen: errno %d", errno);
-    goto CLEAN_UP;
-  }
-
-  while (server_is_up) {  // Check server_is_up flag to determine server state
-    ESP_LOGI(LOGGING_TAG, "Waiting for a new connection...");
-
-    struct sockaddr_storage source_addr;
-    socklen_t addr_len = sizeof(source_addr);
-    int sock = accept(listen_sock, (struct sockaddr *)&source_addr, &addr_len);
-    if (sock < 0) {
-      ESP_LOGE(LOGGING_TAG, "Unable to accept connection: errno %d", errno);
-      continue;
+static void tcp_server_task(void *arg) {
+    (void)arg;
+    uint32_t net, mask;
+    int listener = -1;
+    if (!get_network(&net, &mask)) goto stopped;
+    listener = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+    if (listener < 0) goto stopped;
+    struct sockaddr_in address = {
+        .sin_family = AF_INET, .sin_port = htons(PORT), .sin_addr.s_addr = htonl(INADDR_ANY)
+    };
+    int reuse = 1;
+    setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    if (bind(listener, (struct sockaddr *)&address, sizeof(address)) || listen(listener, 1)) goto stopped;
+    while (server_is_up) {
+        fd_set readers;
+        FD_ZERO(&readers);
+        FD_SET(listener, &readers);
+        struct timeval timeout = { .tv_sec = 0, .tv_usec = 200000 };
+        if (lwip_select(listener + 1, &readers, NULL, NULL, &timeout) <= 0) continue;
+        int sock = accept(listener, NULL, NULL);
+        if (sock < 0) continue;
+        socket_read_loop(sock, net, mask);
+        shutdown(sock, SHUT_RDWR);
+        close(sock);
     }
-
-    // Get client IP
-    if (source_addr.ss_family == AF_INET) {
-      inet_ntoa_r(((struct sockaddr_in *)&source_addr)->sin_addr, addr_str, sizeof(addr_str) - 1);
-    }
-
-    ESP_LOGI(LOGGING_TAG, "Accepted connection from %s", addr_str);
-
-    // Enable TCP Keep-Alive
-    int keepAlive = 1;
-    int keepIdle = KEEPALIVE_IDLE;
-    int keepInterval = KEEPALIVE_INTERVAL;
-    int keepCount = KEEPALIVE_COUNT;
-    setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(int));
-    setsockopt(sock, IPPROTO_TCP, TCP_KEEPIDLE, &keepIdle, sizeof(int));
-    setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, &keepInterval, sizeof(int));
-    setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
-
-    // Handle incoming data
-    socket_read_loop(sock, addr_str);
-
-    // Cleanup once connection has been closed
-    ESP_LOGI(LOGGING_TAG, "Closing connection from %s", addr_str);
-    shutdown(sock, 0);
-    close(sock);
-  }
-  
-  CLEAN_UP:
-  if(listen_sock >= 0){
-    shutdown(listen_sock, SHUT_RDWR);
-    close(listen_sock);
-  }
-
-  ESP_LOGW(LOGGING_TAG, "Server task is shutting down...");
-  vTaskDelete(NULL);
-}
-
-// Function to open the server and create the task
-void server_create() {
-  if (!server_is_up) {  // Prevent starting the server if it's already running
-    server_is_up = true;
-    xTaskCreatePinnedToCore(tcp_server_task, "tcp_server",
-                            TASK_SERVER_STACK, NULL, TASK_SERVER_PRIORITY,
-                            NULL, TASK_SERVER_CORE);
-    ESP_LOGI(LOGGING_TAG, "Server started");
-  } else {
-    ESP_LOGW(LOGGING_TAG, "Server is already running");
-  }
-}
-
-void server_close() {
-  if (server_is_up) {
+stopped:
+    if (listener >= 0) close(listener);
     server_is_up = false;
+    server_task = NULL;
+    vTaskDelete(NULL);
+}
 
-    if(listen_sock >= 0){
-      shutdown(listen_sock, SHUT_RDWR);
-      close(listen_sock);
+void server_wait_stopped(void) {
+    if (server_task == xTaskGetCurrentTaskHandle()) return;
+    while (server_task) vTaskDelay(pdMS_TO_TICKS(10));
+}
+
+void server_create(void) {
+    if (server_is_up) return;
+    server_wait_stopped();
+    if (!session_initialized) {
+        ESP_ERROR_CHECK(peer_session_init(&session) ? ESP_OK : ESP_ERR_NO_MEM);
+        session_initialized = true;
     }
+    peer_session_start(&session);
+    server_is_up = true;
+    ESP_ERROR_CHECK(xTaskCreatePinnedToCore(tcp_server_task, "tcp_server", TASK_SERVER_STACK,
+        NULL, TASK_SERVER_PRIORITY, (TaskHandle_t *)&server_task, TASK_SERVER_CORE) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+}
 
-  } else {
-    ESP_LOGW(LOGGING_TAG, "Server is not running, cannot close it.");
-  }
+void server_close(void) {
+    server_is_up = false;
+    if (session_initialized) peer_session_shutdown(&session);
 }
 
 bool server_send_message(const uint8_t *msg, uint16_t len) {
-
-  if (client_sock < 0) {
-    ESP_LOGW(LOGGING_TAG, "No valid client connected, cannot send message");
-    return false;
-  }
-
-  if (!msg || len == 0) {
-    ESP_LOGE(LOGGING_TAG, "Invalid message: msg is NULL or length is 0");
-    return false;
-  }
-
-  int sent = send(client_sock, msg, len, 0);
-  if (sent == len) {
-    return true;
-  } else {
-    ESP_LOGE(LOGGING_TAG, "Failed to send message: errno %d", errno);
-    return false;
-  }
-
+    return session_initialized && peer_session_send(&session, msg, len);
 }
-
-
-
-
-
-
-
-
-

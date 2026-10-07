@@ -71,10 +71,11 @@ static node_device_orientation_t node_get_config_orientation(void){
 }
 
 static void node_ap_sta_cycle_task(void *arg) {
+  // Keep the initial AP configuration across subsequent STA cycles.
+  uint32_t ap_subnet = node_ptr->node_device_subnet;
+  uint32_t ap_mask = node_ptr->node_device_mask;
+
   while(1) {
-    // Save current AP values so they don't get lost during STA mode
-    uint32_t ap_subnet = node_ptr->node_device_subnet;
-    uint32_t ap_mask = node_ptr->node_device_mask;
     
     //Task called after initializing AP in AP+STA mode, wait for the first check
     vTaskDelay(pdMS_TO_TICKS(AP_STA_CYCLE_DELAY_MINUTES * 60 * 1000));
@@ -326,6 +327,13 @@ int64_t node_get_device_uptime_minutes(void) {
 
 void node_disable_sta(void) {
     device_disable_station(node_ptr->node_device_ptr);
+}
+
+void node_reject_wireless_peer(void) {
+    if (node_ptr->node_device_ptr->mode == STATION)
+        station_disconnect(node_ptr->node_device_ptr->station_ptr);
+    else if (node_ptr->node_device_ptr->mode == AP)
+        ap_disconnect_all_stations(node_ptr->node_device_ptr->access_point_ptr);
 }
 
 void node_enable_sta(void) {

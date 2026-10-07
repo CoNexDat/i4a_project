@@ -2,6 +2,7 @@
 #include "esp_log.h"
 #include "esp_event.h"
 #include "lwip/ip_addr.h"
+#include "lwip/tcpip.h"
 #include "lwip/esp_netif_net_stack.h"
 #include "esp_netif_net_stack.h"
 #include "server.h"
@@ -43,6 +44,7 @@ void ap_init(AccessPointPtr ap, uint8_t wifi_channel, const char *wifi_ssid, con
   ap->channel = wifi_channel;
   ap->is_center = is_center;
   ap->server_is_up = false;
+  ap->stopping = false;
   ap->is_apsta = is_apsta;
   ap->initialized = true;
 }
@@ -117,6 +119,7 @@ void ap_set_network(AccessPointPtr ap, const char *network_cidr, const char *net
 };
 
 void ap_start(AccessPointPtr ap) {
+  ap->stopping = false;
   ESP_LOGI(LOGGING_TAG, "Starting AP");
   ap->state = active;
   ESP_ERROR_CHECK(esp_wifi_start());
@@ -126,6 +129,7 @@ void ap_start(AccessPointPtr ap) {
 };
 
 void ap_stop(AccessPointPtr ap){
+  ap->stopping = true;
   ESP_LOGI(LOGGING_TAG, "Stopping AP");
   ap->state = inactive;
   ESP_ERROR_CHECK(esp_wifi_stop());
@@ -143,13 +147,23 @@ void ap_disconnect_all_stations(AccessPointPtr ap){
   }
 }
 
+// Runs in TCP/IP context, after any packet currently using this interface.
+static void ap_detach_routing_netif(void *ctx) {
+  esp_netif_t **slot = (esp_netif_t **)ctx;
+  *slot = NULL;
+}
+
 void ap_destroy_netif(AccessPointPtr ap) {
   if (ap->netif) {
     ESP_LOGW(LOGGING_TAG, "Destroying AP netif...");
-    node_traffic_stop(ap->netif);
+    esp_netif_t *netif = ap->netif;
+    // Withdraw from custom routing before ESP-IDF frees the interface.
+    // Never call this destructor from the TCP/IP task itself.
+    ESP_ERROR_CHECK(tcpip_callback_wait(ap_detach_routing_netif, &ap->netif) == ERR_OK
+                    ? ESP_OK : ESP_FAIL);
+    node_traffic_stop(netif);
     esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &ap_event_handler);
-    esp_netif_destroy_default_wifi(ap->netif);
-    ap->netif = NULL;  // Prevent reuse or double free
+    esp_netif_destroy_default_wifi(netif);
   } else {
     ESP_LOGI(LOGGING_TAG, "AP netif already destroyed or not initialized.");
   }
@@ -161,6 +175,7 @@ void ap_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, 
     switch (event_id) {
 
       case WIFI_EVENT_AP_STACONNECTED:
+        if (ap->stopping) break;
         if (!node_is_ap_locked()) {
           if (!ap->is_center && !ap->server_is_up) {
             server_create();

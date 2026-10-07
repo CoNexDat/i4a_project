@@ -16,6 +16,7 @@
 #include "info_manager/info_manager.h"
 #include "node.h"
 #include "node_ota/node_ota.h"
+#include "neighbor_manager/neighbor_manager.h"
 
 #define ROOT_NETWORK 0x0A000000  // 10.0.0.0
 #define ROOT_MASK 0xFF000000 // 255.0.0.0
@@ -27,9 +28,17 @@ static const char *TAG = "main";
 static sync_t _sync = { 0 };
 static shared_state_t ss = { 0 };
 
-struct netif *custom_ip4_route_src_hook(const ip4_addr_t *src, const ip4_addr_t *dest) {
-    uint32_t src_ip = lwip_ntohl(ip4_addr_get_u32(src));
+struct netif *custom_ip4_route_src_hook(
+    const ip4_addr_t *src, const ip4_addr_t *dest)
+{
+    if (dest == NULL) {
+        return NULL;
+    }
+
+    // lwIP puede consultar una ruta sin proporcionar el origen.
+    uint32_t src_ip = src ? lwip_ntohl(ip4_addr_get_u32(src)) : 0;
     uint32_t dst_ip = lwip_ntohl(ip4_addr_get_u32(dest));
+
     return node_do_routing(src_ip, dst_ip);
 }
 
@@ -39,6 +48,7 @@ void routing_task(void *pvParameters) {
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));
         rt_on_tick(rt, 1000);
+        nm_tick();
     }
 }
 
@@ -56,6 +66,8 @@ void app_main(void) {
     routing_t *rt = node_get_rt_instance();
     node_device_orientation_t orientation = node_get_device_orientation();
     bool is_center_root = node_is_device_center_root();
+
+    ESP_ERROR_CHECK(nm_init(rs, orientation, node_get_uuid()) ? ESP_OK : ESP_ERR_NO_MEM);
 
     sync_init(&_sync, rs, orientation + ROUTING_ORIENTATION_OFFSET);
     ss_init(&ss, &_sync, rs, orientation + ROUTING_ORIENTATION_OFFSET);

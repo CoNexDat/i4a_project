@@ -31,6 +31,7 @@ void node_disable_sta(void); // Disable the STA interface at runtime while keepi
 void node_enable_sta(void);  // Enable the STA interface at runtime using the saved configuration
 void node_disable_ap(void);  // Disable the AP interface at runtime while keeping its settings
 void node_enable_ap(void);   // Enable the AP interface at runtime using the saved configuration
+void node_reject_wireless_peer(void); // Release the current association and resume discovery.
 bool node_is_sta_locked(void); // Returns whether the STA interface is enabled or not
 bool node_is_ap_locked(void); // Returns whether the AP interface is enabled or not
 bool node_is_device_apsta(void); // Returns whether the device is on AP+STA mode or not
